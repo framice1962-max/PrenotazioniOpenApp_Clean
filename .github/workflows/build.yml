@@ -83,8 +83,16 @@ jobs:
 
       - name: Install Android packages (stable channel)
         run: |
-          YES=yes
-          "$YES" | "${{ steps.loc.outputs.sdkmanager_path }}" --channel=0 "platform-tools" "platforms;android-33" "build-tools;34.0.0"
+           YES=yes
+           # Info di diagnostica
+           "${{ steps.loc.outputs.sdkmanager_path }}" --version || true
+           "${{ steps.loc.outputs.sdkmanager_path }}" --list | head -n 50 || true
+
+           # Installazione esplicita (canale stabile) dei pacchetti richiesti
+           "$YES" | "${{ steps.loc.outputs.sdkmanager_path }}" --channel=0 --install \
+             "platform-tools" \
+             "platforms;android-33" \
+             "build-tools;34.0.0"
 
       - name: Verify AIDL
         run: |
