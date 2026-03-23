@@ -1,18 +1,13 @@
-name: Build APK (Ubuntu)
+name: Test SDK Manager
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
 
       - name: Setup Java 17
         uses: actions/setup-java@v4
@@ -20,90 +15,32 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install system deps
+      - name: Install deps
         run: |
           sudo apt update
-          sudo apt install -y unzip git python3-pip python3-setuptools \
-            zlib1g-dev libffi-dev libssl-dev libltdl-dev \
-            autoconf automake libtool pkg-config
-
-      - name: Unzip project
-        run: |
-          test -f PrenotazioniOpenApp_clean_v1.zip || { echo "ZIP not found"; exit 1; }
-          unzip -q PrenotazioniOpenApp_clean_v1.zip -d project
-          echo "== project content =="
-          find project -maxdepth 3 -print
-
-      - name: Detect buildozer.spec
-        id: detect
-        shell: bash
-        run: |
-          SPEC_PATH=$(find project -type f -name buildozer.spec -print -quit)
-          [ -n "$SPEC_PATH" ] || { echo "buildozer.spec not found"; exit 1; }
-          APP_DIR=$(dirname "$SPEC_PATH")
-          echo "app_dir=$APP_DIR" >> $GITHUB_OUTPUT
-
-      - name: Validate spec pins
-        shell: bash
-        run: |
-          SPEC="${{ steps.detect.outputs.app_dir }}/buildozer.spec"
-          grep -E '^android.api *= *33$' "$SPEC" || { echo "missing api 33"; exit 1; }
-          grep -E '^android.build_tools_version *= *34.0.0$' "$SPEC" || { echo "missing bt 34.0.0"; exit 1; }
-          grep -E '^android.accept_sdk_license *= *True$' "$SPEC" || { echo "missing license acceptance"; exit 1; }
+          sudo apt install -y unzip git python3-pip python3-setuptools
 
       - name: Install buildozer
         run: |
           python3 -m pip install --upgrade pip setuptools wheel
-          python3 -m pip install Cython buildozer
+          python3 -m pip install buildozer
 
       - name: First spin-up
-        working-directory: ${{ steps.detect.outputs.app_dir }}
-        run: buildozer android debug || true
+        run: |
+          mkdir app
+          echo "print('hello')" > app/main.py
+          cd app
+          buildozer init
+          buildozer android debug || true
 
-      - name: Locate SDK and sdkmanager
+      - name: Locate SDK
         id: loc
-        shell: bash
         run: |
           SDK="$HOME/.buildozer/android/platform/android-sdk"
           echo "sdk_dir=$SDK" >> $GITHUB_OUTPUT
-
-          SM=""
-
-          if [ -x "$SDK/tools/bin/sdkmanager" ]; then
-            SM="$SDK/tools/bin/sdkmanager"
-          fi
-
-          if [ -z "$SM" ]; then
-            SM=$(find "$SDK" -type f -path '*/cmdline-tools/*/bin/sdkmanager' -print -quit)
-          fi
-
-          [ -n "$SM" ] || { echo "sdkmanager not found"; exit 1; }
-
+          SM=$(find "$SDK" -type f -name sdkmanager -print -quit)
           echo "sdkmanager_path=$SM" >> $GITHUB_OUTPUT
 
-      - name: Accept licenses
+      - name: Install Android SDK packages
         run: |
-          yes | "${{ steps.loc.outputs.sdkmanager_path }}" --licenses || true
-
-      - name: Install Android packages (stable channel)
-        run: |
-          echo ">>> Install Android packages (stable channel)"
           yes | "${{ steps.loc.outputs.sdkmanager_path }}" --channel=0 --install "platform-tools" "platforms;android-33" "build-tools;34.0.0"
-
-      - name: Verify AIDL
-        run: |
-          SDK="${{ steps.loc.outputs.sdk_dir }}"
-          [ -x "$SDK/build-tools/34.0.0/aidl" ] || { echo "aidl missing"; exit 1; }
-          ls -la "$SDK/build-tools"
-
-      - name: Build APK (debug)
-        working-directory: ${{ steps.detect.outputs.app_dir }}
-        run: buildozer -v android debug
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: apk-output
-          path: |
-            ${{ steps.detect.outputs.app_dir }}/bin/*.apk
-          if-no-files-found: error
